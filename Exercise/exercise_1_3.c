@@ -122,6 +122,15 @@ void DGEMM(
     int const ldA, double const* const B, int const ldB,
     double const beta, double* const C, int const ldC)
 {
+    for (j = 0; j < n; j++) {           
+        for (l = 0; l < k; l++) {       // 遍历中间维度 k（累加的次数）
+            for (i = 0; i < m; i++) {   
+                C[i + j * ldC] += alpha * A[i + l * ldA] * B[l + j * ldB];
+            }
+        }
+    }
+
+    /*
     CBLAS_LAYOUT const layout = CblasColMajor;
     CBLAS_TRANSPOSE const transA = CblasNoTrans;
     CBLAS_TRANSPOSE const transB = CblasNoTrans;
@@ -130,7 +139,8 @@ void DGEMM(
         m, n, k,
         alpha, A, ldA,
         B, ldB,
-        beta, C, ldC);
+        beta, C, ldC);   
+    */
 }
 
 void rowwise_DGEMM(
@@ -139,6 +149,15 @@ void rowwise_DGEMM(
     int const ldA, double const* const B, int const ldB,
     double const beta, double* const C, int const ldC)
 {
+
+    for (i = 0; i < m; i++) {   
+        for (l = 0; l < k; l++) {       
+            for (j = 0; j < n; j++) {   
+                C[i + j * ldC] += alpha * A[i + l * ldA] * B[l + j * ldB];
+            }
+        }
+    }
+    /*
     CBLAS_LAYOUT const layout = CblasColMajor;
     CBLAS_TRANSPOSE const transA = CblasNoTrans;
     CBLAS_TRANSPOSE const transB = CblasNoTrans;
@@ -147,7 +166,8 @@ void rowwise_DGEMM(
         m, n, k,
         alpha, A, ldA,
         B, ldB,
-        beta, C, ldC);
+        beta, C, ldC);    
+    */
 }
 
 
