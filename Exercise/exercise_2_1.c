@@ -69,9 +69,84 @@ static bool test_muptiply(int const m, int const k, int const n, GEMM gemm, doub
 // {
 // }
 //
+void parallel_gemm(
+    int const m, int const k, int const n,
+    double const* const A, double const* const B, double* const C)
+{
+    int rank, size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    int local_n = n / size;  
+
+    double *A_local = (double *) malloc(m * k * sizeof(double));
+    if (!A_local) {
+        fprintf(stderr, "Rank %d: malloc failed for A_local\n", rank);
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+
+    if (rank == 0) {
+        memcpy(A_local, A, m * k * sizeof(double));
+    }
+
+    MPI_Bcast(A_local, m * k, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    double *B_local = (double *) malloc(k * local_n * sizeof(double));
+    if (!B_local) {
+        fprintf(stderr, "Rank %d: malloc failed for B_local\n", rank);
+        free(A_local);
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+
+    MPI_Scatter(
+        B,                  
+        k * local_n,        
+        MPI_DOUBLE,
+        B_local,            
+        k * local_n,
+        MPI_DOUBLE,
+        0,                  // root
+        MPI_COMM_WORLD
+    );
+
+    double *C_local = (double *) calloc(m * local_n, sizeof(double));
+    if (!C_local) {
+        fprintf(stderr, "Rank %d: calloc failed for C_local\n", rank);
+        free(A_local);
+        free(B_local);
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+
+    for (int i = 0; i < m; i++) {
+        for (int j = 0; j < local_n; j++) {
+            double sum = 0.0;
+            for (int p = 0; p < k; p++) {
+                sum += A_local[i * k + p] * B_local[p * local_n + j];
+            }
+            C_local[i * local_n + j] = sum;
+        }
+    }
+
+
+    MPI_Gather(
+        C_local,            
+        m * local_n,        
+        MPI_DOUBLE,
+        C,                  
+        m * local_n,        
+        MPI_DOUBLE,
+        0,                  // root
+        MPI_COMM_WORLD
+    );
+
+    free(A_local);
+    free(B_local);
+    free(C_local);
+}
+
 // Then set "tested_gemm" to the address of your funtion
-GEMM const tested_gemm = &multiply_matrices;
-// GEMM const tested_gemm = &parallel_gemm;
+//GEMM const tested_gemm = &multiply_matrices;
+GEMM const tested_gemm = &parallel_gemm;
 
 static bool generate_square_matrix_dimension(int* const m, int* const k, int* const n)
 {
@@ -93,6 +168,7 @@ static bool generate_square_matrix_dimension(int* const m, int* const k, int* co
 
 int main(int argc, char* argv[])
 {
+    MPI_Init(&argc, &argv);
     bool all_test_pass = true;
 
     int m = 0;
@@ -111,5 +187,6 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
+    MPI_Finalize();
     return EXIT_SUCCESS;
 }

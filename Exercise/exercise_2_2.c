@@ -69,9 +69,68 @@ static bool test_muptiply(int const m, int const k, int const n, GEMM gemm, doub
 // {
 // }
 //
+
+void parallel_gemm(
+    int const m, int const k, int const n,
+    double const* const A, double const* const B, double* const C)
+{
+    int rank, size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    int bs = n / size;  
+
+    double *A_local = (double *)malloc(bs * n * sizeof(double));
+    double *B_local = (double *)malloc(bs * n * sizeof(double));
+    double *C_local = (double *)calloc(bs * n, sizeof(double));  
+
+    double *A_recv  = (double *)malloc(bs * n * sizeof(double)); 
+
+    MPI_Scatter(A, bs * n, MPI_DOUBLE, A_local, bs * n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Scatter(B, bs * n, MPI_DOUBLE, B_local, bs * n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    for (int t = 0; t < size; t++) {
+        int b_block_idx = (rank + t) % size;
+
+        for (int i = 0; i < bs; i++) {             
+            for (int j = 0; j < n; j++) {           
+                double sum = 0.0;
+                for (int kk = 0; kk < n; kk++) {
+                    sum += A_local[i * n + kk] * B_local[(b_block_idx * bs + kk) * n + j];
+                }
+                C_local[i * n + j] += sum;
+            }
+        }
+
+        if (t < size - 1) {
+            int left  = (rank - 1 + size) % size;
+            int right = (rank + 1) % size;
+
+            MPI_Sendrecv(
+                A_local, bs * n, MPI_DOUBLE, left,  0xCANNON,
+                A_recv,  bs * n, MPI_DOUBLE, right, 0xCANNON,
+                MPI_COMM_WORLD, MPI_STATUS_IGNORE
+            );
+
+            double *temp = A_local;
+            A_local = A_recv;
+            A_recv = temp;
+        }
+    }
+
+    MPI_Gather(C_local, bs * n, MPI_DOUBLE,
+               C,       bs * n, MPI_DOUBLE,
+               0, MPI_COMM_WORLD);
+
+    free(A_local);
+    free(B_local);
+    free(C_local);
+    free(A_recv);
+}
+
 // Then set "tested_gemm" to the address of your funtion
-GEMM const tested_gemm = &multiply_matrices;
-// GEMM const tested_gemm = &parallel_gemm;
+//GEMM const tested_gemm = &multiply_matrices;
+GEMM const tested_gemm = &parallel_gemm;
 
 static bool generate_square_matrix_dimension(int* const m, int* const k, int* const n)
 {
@@ -93,6 +152,8 @@ static bool generate_square_matrix_dimension(int* const m, int* const k, int* co
 
 int main(int argc, char* argv[])
 {
+    MPI_Init(&argc, &argv);
+
     bool all_test_pass = true;
 
     int m = 0;
@@ -111,5 +172,6 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
+    MPI_Finalize();
     return EXIT_SUCCESS;
 }
